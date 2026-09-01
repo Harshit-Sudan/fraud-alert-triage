@@ -67,10 +67,10 @@ Python, pandas, scikit-learn (Logistic Regression), Google Gemini API (`google-g
 ## Screenshots
 
 **Dashboard — model metrics and cost analysis**
-[Dashboard metrics](screenshots/dashboard-metrics.png)
+[Dashboard metrics](screenshots/dashboard-1.png)
 
 **Dashboard — flagged transactions with AI explanations**
-[Dashboard table](screenshots/dashboard-table.png)
+[Dashboard table](screenshots/dashboard-2.png)
 
 **Model metrics (terminal output)**
 [Metrics](screenshots/metrics.png)
