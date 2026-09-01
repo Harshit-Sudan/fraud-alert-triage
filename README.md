@@ -1,178 +1,98 @@
-\# Fraud Alert Triage
-
-
+# Fraud Alert Triage
 
 Built for the Razorpay AI Buildathon 2026 — Track 02: AI Risk Manager.
 
+## What it does
 
+Fraud analysts get flooded with alerts and most of them turn out to be nothing. This project flags suspicious credit card transactions and uses an LLM to write a short explanation for each one, so an analyst can review faster instead of digging through raw numbers themselves. Every flagged transaction, its confidence score, and its explanation gets saved to a log file, so there's a record of every decision the system made.
 
-\## What it does
+If the AI explanation step fails for any reason — API down, rate limit, network issue — the system doesn't crash. It falls back to a simple rule-based explanation instead and keeps running.
 
+Importantly, the model only detects and explains. It never blocks a transaction, freezes an account, or makes a final call on its own. That decision stays with a human analyst — the AI's job here is just to make their review faster.
 
-
-Fraud analysts get a lot of alerts, and most of them turn out to be nothing. This project flags suspicious credit card transactions, then uses an LLM to write a short explanation for why each one was flagged, so an analyst can review faster instead of digging through raw numbers. Every flag and its explanation gets logged, and the system doesn't crash if the AI explanation step fails — it falls back to a rule-based explanation instead.
-
-
-
-The model only detects and explains. It never blocks a transaction or makes a final decision — that's still up to a human analyst.
-
-
-
-\## How it works
-
-
+## How it works
 
 Transaction data → Detector (ML model) → Explainer (LLM) → Audit log → Dashboard
 
+1. **Detector** (`src/model.py`) — a Logistic Regression model trained on the [Kaggle credit card fraud dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud): 284,807 real (anonymized) transactions, 492 of them labeled fraud. I started with a much simpler approach first (`src/detector.py`) — just flag anything above the 99th percentile of normal transaction amounts. That performed badly (0.3% precision, 2% recall), which told me amount alone isn't a strong enough signal, so I moved to a model that uses all 28 anonymized features plus amount.
 
+2. **Explainer** (`src/explainer.py`) — for every transaction the detector flags, this calls Gemini and asks it to write a 1-2 sentence explanation of why it looks suspicious and what the analyst should check next. It's explicitly told not to make a final decision, only to suggest what to look at. I started with `gemini-2.5-flash` but kept hitting the free-tier rate limit while testing, so I switched to `gemini-2.5-flash-lite`, which has more headroom on the free tier.
 
+3. **Audit log** (`logs/audit_log.jsonl`) — every flagged transaction gets one line: timestamp, transaction index, amount, model confidence score, whether it was actually fraud (from the labeled data, for my own evaluation), and the explanation text. This is meant to work like a real audit trail — a record of what the system flagged and why, that could be reviewed later.
 
+4. **Dashboard** (`src/dashboard.py`) — a Streamlit app that shows the model's precision/recall at a glance, two sliders to adjust the assumed cost of a false-positive review and the assumed cost of a missed fraud (so you can see how the total cost changes with different assumptions), and a scrollable table of flagged transactions with their AI explanations.
 
-1\. \*\*Detector\*\* (`src/model.py`) — a Logistic Regression model trained on the \[Kaggle credit card fraud dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud) (284,807 transactions, 492 labeled frauds). I also kept the original rule-based baseline (`src/detector.py`) that just flags transactions above a percentile threshold — I built this first, and it performed badly (0.3% precision, 2% recall), which is why I moved to a real model.
+## Results
 
+I trained on 70% of the data and tested on the remaining 30%, which the model never saw during training — this is what "held-out test set" means and it's how I got honest numbers instead of ones that just look good because the model memorized the training data.
 
+**Baseline rule (Amount > 99th percentile):**
+- Precision: 0.3%
+- Recall: 2%
 
-2\. \*\*Explainer\*\* (`src/explainer.py`) — for every flagged transaction, this calls Gemini (`gemini-2.5-flash`, with `gemini-2.5-flash-lite` as backup since I kept hitting free-tier rate limits) to write a 1-2 sentence explanation of why it looks suspicious and what an analyst should check. If the API call fails for any reason, it falls back to a plain rule-based explanation instead of crashing.
+Barely better than flagging things at random — not usable on its own, but useful as a comparison point for how much the real model improves on it.
 
-
-
-3\. \*\*Audit log\*\* (`logs/audit\_log.jsonl`) — every flagged transaction, its model confidence score, whether it was actually fraud, and its explanation gets saved here with a timestamp.
-
-
-
-4\. \*\*Dashboard\*\* (`src/dashboard.py`) — a Streamlit app showing precision/recall, a slider to see how false-positive review costs vs. missed-fraud costs trade off at different assumptions, and a table of flagged transactions with their explanations.
-
-
-
-\## Results
-
-
-
-Trained on 70% of the data, tested on the remaining 30% (held out, never seen during training).
-
-
-
-\*\*Baseline rule (Amount > 99th percentile):\*\*
-
-\- Precision: 0.3%
-
-\- Recall: 2%
-
-
-
-\*\*Logistic Regression, at different confidence thresholds:\*\*
-
-
+**Logistic Regression, tested at different confidence thresholds:**
 
 | Threshold | Precision | Recall | False alarms |
-
 |---|---|---|---|
-
 | 0.5 | 6.7% | 87.8% | 1807 |
-
 | 0.7 | 13.4% | 86.5% | 829 |
-
 | 0.9 | 25.7% | 83.1% | 356 |
-
-| \*\*0.95 (used)\*\* | \*\*40.1%\*\* | \*\*83.1%\*\* | \*\*184\*\* |
-
+| **0.95 (used)** | **40.1%** | **83.1%** | **184** |
 | 0.99 | 61.7% | 80.4% | 74 |
 
+The model doesn't just output "fraud" or "not fraud" — it gives a confidence score between 0 and 1, and you choose where to draw the line. A lower threshold catches more fraud but also flags a lot of innocent transactions; a higher threshold cuts false alarms but starts missing more real fraud.
 
+I went with **0.95**. At that point it still catches 83% of real fraud, while cutting false alarms from over a thousand down to 184 — something an analyst could realistically get through. I didn't push it to 0.99 because in fraud detection, missing a real fraud case is usually more costly than reviewing a few extra false alarms, so I didn't want to optimize precision at the cost of recall dropping much further.
 
-I picked \*\*0.95\*\* as the working threshold. It catches 83% of real fraud while keeping false alarms low enough to be realistic for an analyst to review. I didn't push the threshold higher (like 0.99) because in fraud detection, missing real fraud is usually more costly than reviewing a few extra false alarms — 0.95 felt like the more balanced tradeoff.
+## Build challenges
 
+- The rule-based baseline barely worked, which was expected once I saw the numbers — a single amount threshold misses small-value fraud entirely and flags plenty of large legitimate purchases. Kept it in the repo anyway as a comparison point.
+- The model's default settings (`class_weight="balanced"`) made it flag almost everything as suspicious — 88% recall but only 6.7% precision at the default threshold. Had to switch from the model's default yes/no output to its raw confidence scores (`predict_proba`) and manually test several thresholds to find a usable balance.
+- Hit repeated 404 errors from the Gemini API — `gemini-2.0-flash` and a couple of other model names I tried had been retired by Google. Instead of guessing more names, I called `client.models.list()` to see exactly which models my API key had access to, and picked one from that list.
+- Kept hitting Gemini's free-tier rate limits while testing — both a daily quota and a per-minute limit. This caused the explainer to fall back to rule-based explanations partway through a run more than once. I didn't treat this as a bug to hide — it's exactly the scenario the fallback logic exists for, so I left one such log as-is rather than only showing a fully clean run.
+- Python 3.14 (which I had installed) broke scikit-learn's installation — a Windows security policy blocked a DLL scikit-learn depends on from loading. Installed Python 3.12 alongside it and rebuilt the virtual environment using that version instead.
 
+## What I'd add with more time
 
-\## Build challenges
+- A confusion matrix chart in the dashboard, alongside the numbers
+- Testing the model against a second, more recent fraud dataset to see how well it generalizes beyond this one
+- A second failure-case test — like a malformed or missing transaction field — beyond just the API-outage case I already demonstrate
 
+## Tech stack
 
+Python, pandas, scikit-learn (Logistic Regression), Google Gemini API (`google-genai`), Streamlit, JSONL for the audit log.
 
-\- The rule-based baseline barely worked (2% recall), which is expected — a single amount threshold isn't enough signal for fraud detection. It's kept in the repo as a comparison point.
+## Screenshots
 
-\- Ran into a `class\_weight="balanced"` default that made the model flag almost everything (88% recall but only 6.7% precision at the default 0.5 threshold). Had to manually test multiple thresholds using `predict\_proba` instead of the model's default classification to find a usable balance.
+**Dashboard — model metrics and cost analysis**
+![Dashboard metrics](screenshots/dashboard-metrics.png)
 
-\- Hit repeated issues with Gemini API model names — `gemini-2.0-flash` and a couple others returned 404s because Google had retired them. Fixed by calling `client.models.list()` to see what my API key actually had access to, instead of guessing model names.
+**Dashboard — flagged transactions with AI explanations**
+![Dashboard table](screenshots/dashboard-table.png)
 
-\- Hit Gemini's free-tier rate limits multiple times while testing (both daily quota and per-minute limits), which caused the explainer to fall back to rule-based explanations mid-run. This wasn't a bug — it's exactly the kind of failure the fallback logic was built to handle gracefully, so I left one such run's audit log as-is rather than only showing a clean run.
+**Model metrics (terminal output)**
+![Metrics](screenshots/metrics.png)
 
-\- Python 3.14 (which I had installed) broke `scikit-learn`'s installation due to a Windows security policy blocking a DLL. Fixed by installing Python 3.12 instead and rebuilding the virtual environment with that version.
+**Audit log — sample entries**
+![Audit log](screenshots/audit-log.png)
 
+**Graceful failure — API key removed, falls back to rule-based explanations**
+![Fallback](screenshots/fallback.png)
 
-
-\## What I'd add with more time
-
-
-
-\- A confusion matrix visualization in the dashboard
-
-\- Testing the detector against a second, more recent fraud dataset to check it generalizes
-
-\- A second failure-case test (e.g. malformed transaction rows) beyond the API-outage one
-
-
-
-\## Tech stack
-
-
-
-Python, pandas, scikit-learn (Logistic Regression), Google Gemini API (`google-genai`), Streamlit, JSONL for logging.
-
-
-
-\## Screenshots
-
-
-
-\*(Add these — see screenshots/ folder)\*
-
-
-
-\*\*Dashboard\*\*
-
-!\[Dashboard](screenshots/dashboard.png)
-
-
-
-\*\*Model metrics (terminal)\*\*
-
-!\[Metrics](screenshots/metrics.png)
-
-
-
-\*\*Graceful failure — API key removed, falls back to rule-based explanations\*\*
-
-!\[Fallback](screenshots/fallback.png)
-
-
-
-\## Running it locally
-
-
+## Running it locally
 
 ```bash
-
 python -m venv venv
-
-.\\venv\\Scripts\\activate
-
+.\venv\Scripts\activate
 pip install -r requirements.txt
-
 ```
 
-
-
-Add a `.env` file with `GEMINI\_API\_KEY=your\_key\_here`, place `creditcard.csv` in `data/`, then:
-
-
+Add a `.env` file with `GEMINI_API_KEY=your_key_here`, place `creditcard.csv` (from the Kaggle link above) in `data/`, then:
 
 ```bash
-
-python src/model.py      # see model metrics
-
+python src/model.py      # baseline vs. model metrics
 python src/pipeline.py   # run detection + explanation + logging
-
 streamlit run src/dashboard.py   # view the dashboard
-
 ```
-
