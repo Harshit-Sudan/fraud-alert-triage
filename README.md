@@ -67,19 +67,19 @@ Python, pandas, scikit-learn (Logistic Regression), Google Gemini API (`google-g
 ## Screenshots
 
 **Dashboard — model metrics and cost analysis**
-![Dashboard metrics](screenshots/dashboard-metrics.png)
+[Dashboard metrics](screenshots/dashboard-metrics.png)
 
 **Dashboard — flagged transactions with AI explanations**
-![Dashboard table](screenshots/dashboard-table.png)
+[Dashboard table](screenshots/dashboard-table.png)
 
 **Model metrics (terminal output)**
-![Metrics](screenshots/metrics.png)
+[Metrics](screenshots/metrics.png)
 
 **Audit log — sample entries**
-![Audit log](screenshots/audit-log.png)
+[Audit log](screenshots/audit-log.png)
 
 **Graceful failure — API key removed, falls back to rule-based explanations**
-![Fallback](screenshots/fallback.png)
+[Fallback](screenshots/fallback.png)
 
 ## Running it locally
 
