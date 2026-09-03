@@ -81,6 +81,10 @@ Python, pandas, scikit-learn (Logistic Regression), Google Gemini API (`google-g
 **Graceful failure — API key removed, falls back to rule-based explanations**
 [Fallback](screenshots/fallback.png)
 
+## Demo Video
+
+📹 [Watch the demo video](https://drive.google.com/file/d/16kxarYydwiddqyDZO-ZhpR-X0bDNMqXF/view?usp=drive_link)
+
 ## Running it locally
 
 ```bash
